@@ -1316,3 +1316,4 @@ function App() {
 }
 
 export default App;
+// email notifications enabled
