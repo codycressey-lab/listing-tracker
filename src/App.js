@@ -87,6 +87,15 @@ async function sendSMS(to, message) {
   }
 }
 
+async function sendEmail(to, subject, html) {
+  if (!to) return;
+  try {
+    await supabase.functions.invoke('send-email', { body: { to, subject, html } });
+  } catch (err) {
+    console.error('Email error:', err);
+  }
+}
+
 // ─── Auth Screen ──────────────────────────────────────────────────────────────
 
 function AuthScreen({ onAuth }) {
@@ -482,6 +491,7 @@ function ProfileSetup({ user, onComplete }) {
       initials: initials.trim().toUpperCase().slice(0, 3),
       phone: formattedPhone,
       company: company.trim(),
+      email: user.email,
       ...(avatar_url && { avatar_url }),
     });
     setSaving(false);
@@ -687,6 +697,11 @@ function App() {
     if (!data || !data.name) {
       setNeedsProfile(true);
     } else {
+      // Keep email in sync with auth email
+      if (data.email !== user.email) {
+        await supabase.from('profiles').update({ email: user.email }).eq('id', user.id);
+        data.email = user.email;
+      }
       setCurrentProfile(data);
       setNeedsProfile(false);
       fetchAll();
@@ -805,7 +820,7 @@ function App() {
     if (!newNote.trim() || !currentProfile) return;
     const prop = properties.find(p => p.id === propertyId);
 
-    // Match against actual profile names — much more reliable than regex
+    // Match against actual profile names
     const mentionedProfiles = profiles.filter(p =>
       newNote.includes('@' + p.name)
     );
@@ -818,13 +833,37 @@ function App() {
       mentions: mentionIds,
     }]);
 
-    // SMS mentioned users
+    // Get auth emails for mentioned users
+    const { data: authUsers } = await supabase.auth.admin?.listUsers?.() || { data: null };
+
+    // Notify mentioned users
     for (const mp of mentionedProfiles) {
-      if (mp.phone && mp.id !== currentProfile.id) {
-        const link = `${window.location.origin}?property=${propertyId}`;
-        const msg = `🏠 ${currentProfile.name} mentioned you in ${prop?.address || 'a property'}: "${newNote.slice(0, 100)}"\nView property: ${link}`;
-        await sendSMS(mp.phone, msg);
-      }
+      if (mp.id === currentProfile.id) continue;
+      const link = `${window.location.origin}?property=${propertyId}`;
+      const subject = `${currentProfile.name} mentioned you in ${prop?.address || 'a property'}`;
+      const html = `
+        <div style="font-family: system-ui, sans-serif; max-width: 500px; margin: 0 auto;">
+          <div style="background: #1a2744; padding: 16px 20px; border-radius: 8px 8px 0 0;">
+            <div style="color: white; font-size: 16px; font-weight: 700;">Listing Tracker</div>
+            <div style="color: rgba(255,255,255,0.6); font-size: 12px;">Backyard Home Buyers</div>
+          </div>
+          <div style="padding: 20px; border: 1px solid #eee; border-top: none; border-radius: 0 0 8px 8px;">
+            <p style="margin: 0 0 12px; font-size: 14px; color: #333;">
+              <strong>${currentProfile.name}</strong> mentioned you in <strong>${prop?.address || 'a property'}</strong>:
+            </p>
+            <div style="background: #f8f8f8; border-left: 3px solid #1a2744; padding: 10px 14px; border-radius: 4px; font-size: 13px; color: #444; margin-bottom: 16px;">
+              ${newNote}
+            </div>
+            <a href="${link}" style="display: inline-block; background: #1a2744; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
+              View Property →
+            </a>
+          </div>
+        </div>
+      `;
+      // Send to profile email if available, otherwise use auth email
+      const emailTo = mp.email || session?.user?.email;
+      if (emailTo) await sendEmail(emailTo, subject, html);
+      if (mp.phone) await sendSMS(mp.phone, `🏠 ${currentProfile.name} mentioned you in ${prop?.address || 'a property'}: "${newNote.slice(0, 100)}"\nView: ${link}`);
     }
 
     setNewNote(''); fetchAll();
