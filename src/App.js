@@ -673,6 +673,95 @@ function EditProfileModal({ profile, user, onClose, onSave }) {
   );
 }
 
+// ─── Invite User Form ────────────────────────────────────────────────────────
+
+function InviteUserForm({ onInvited }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [company, setCompany] = useState('');
+  const [role, setRole] = useState('user');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  async function sendInvite() {
+    if (!name.trim() || !email.trim()) { setError('Name and email are required'); return; }
+    setLoading(true); setError(''); setSuccess('');
+    try {
+      const initials = name.trim().split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 3);
+      const { data, error } = await supabase.functions.invoke('invite-user', {
+        body: { email: email.trim(), name: name.trim(), initials, phone: phone.trim(), company: company.trim(), role }
+      });
+      if (error || data?.error) {
+        setError(data?.error || error?.message || 'Failed to send invite');
+      } else {
+        setSuccess(`Invite sent to ${email}!`);
+        setName(''); setEmail(''); setPhone(''); setCompany(''); setRole('user');
+        onInvited();
+        setTimeout(() => { setSuccess(''); setOpen(false); }, 2500);
+      }
+    } catch (err) {
+      setError('Something went wrong. Try again.');
+    }
+    setLoading(false);
+  }
+
+  const inp = { width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #ddd', fontSize: 13, boxSizing: 'border-box', fontFamily: 'system-ui', marginBottom: 8 };
+
+  if (!open) return (
+    <button onClick={() => setOpen(true)}
+      style={{ width: '100%', padding: '9px', borderRadius: 8, border: '1.5px dashed #1a2744', background: 'none', color: '#1a2744', fontSize: 12, fontWeight: 600, cursor: 'pointer', marginBottom: 10 }}>
+      + Invite new user
+    </button>
+  );
+
+  return (
+    <div style={{ background: '#f8f9ff', borderRadius: 10, border: '1px solid #e0e6ff', padding: 14, marginBottom: 10 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#1a2744', marginBottom: 10 }}>Invite new user</div>
+      {error && <div style={{ background: '#fff5f5', border: '1px solid #ffcdd2', borderRadius: 7, padding: '7px 10px', fontSize: 12, color: '#c62828', marginBottom: 8 }}>{error}</div>}
+      {success && <div style={{ background: '#e8f5e9', border: '1px solid #c8e6c9', borderRadius: 7, padding: '7px 10px', fontSize: 12, color: '#2e7d32', marginBottom: 8 }}>✓ {success}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 0 }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Full name *</div>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Sara Johnson" style={inp} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Email *</div>
+          <input value={email} onChange={e => setEmail(e.target.value)} placeholder="sara@halstead.com" type="email" style={inp} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Phone (SMS)</div>
+          <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="5095551234" style={inp} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Company</div>
+          <input value={company} onChange={e => setCompany(e.target.value)} placeholder="Halstead Home Group" style={inp} />
+        </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Role</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {['user', 'admin'].map(r => (
+            <button key={r} onClick={() => setRole(r)}
+              style={{ flex: 1, padding: '7px', borderRadius: 7, border: role === r ? '2px solid #1a2744' : '1px solid #ddd', background: role === r ? '#1a2744' : 'white', color: role === r ? 'white' : '#555', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+              {r === 'admin' ? 'Admin' : 'User'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: '#aaa', marginBottom: 10 }}>They'll receive an email to set their password and log in.</div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => { setOpen(false); setError(''); setSuccess(''); }} style={{ flex: 1, padding: '8px', borderRadius: 7, border: '1px solid #ddd', background: 'white', fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+        <button onClick={sendInvite} disabled={loading} style={{ flex: 2, padding: '8px', borderRadius: 7, border: 'none', background: '#1a2744', color: 'white', fontSize: 12, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+          {loading ? 'Sending...' : 'Send Invite'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 function useIsMobile() {
@@ -1445,7 +1534,11 @@ function App() {
                     </div>
                   );
                 })}
-                <div style={{ padding: 10, background: '#f0f7ff', borderRadius: 8, border: '1px solid #d0e8ff' }}>
+                {/* Invite User Form */}
+                {isAdmin && (
+                  <InviteUserForm onInvited={() => fetchProfiles()} />
+                )}
+                <div style={{ padding: 10, background: '#f0f7ff', borderRadius: 8, border: '1px solid #d0e8ff', marginTop: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#1a3a5c', marginBottom: 2 }}>Signed in as {currentProfile?.role === 'admin' ? 'Admin' : 'User'}</div>
                   <div style={{ fontSize: 11, color: '#5a7a9c' }}>Admins have full access. User permissions are individually controlled above.</div>
                 </div>
