@@ -709,9 +709,15 @@ function App() {
   const [stagePriceModal, setStagePriceModal] = useState(null);
   const [hoveredPropId, setHoveredPropId] = useState(null);
   // Mobile nav state
-  const [mobileScreen, setMobileScreen] = useState('pipeline'); // 'pipeline' | 'property' | 'activity'
+  const [mobileScreen, setMobileScreen] = useState('pipeline');
   const [mobileStageFilter, setMobileStageFilter] = useState('rehabbing');
-  const [mobileDetailTab, setMobileDetailTab] = useState('checklist'); // 'checklist' | 'activity' | 'team'
+  const [mobileDetailTab, setMobileDetailTab] = useState('checklist');
+  // Settings accordion
+  const [settingsSection, setSettingsSection] = useState(null);
+  // Default checklists
+  const [defaultChecklists, setDefaultChecklists] = useState(null);
+  const [editingDefaults, setEditingDefaults] = useState(null);
+  const [defaultStageOpen, setDefaultStageOpen] = useState('rehabbing');
 
   useEffect(() => {
     if (!properties.length) return;
@@ -784,7 +790,8 @@ function App() {
     if (!newAddress.trim()) return;
     const { data, error } = await supabase.from('properties').insert([{ address: newAddress, status: 'rehabbing', price: newPrice || '' }]).select().single();
     if (error || !data) return;
-    const checks = DC['rehabbing'].map(l => ({ property_id: data.id, label: l, is_done: false, due_date: '', stage: 'rehabbing' }));
+    const activeDefaults = defaultChecklists || DC;
+    const checks = (activeDefaults['rehabbing'] || DC['rehabbing']).map(l => ({ property_id: data.id, label: typeof l === 'string' ? l : l.label, is_done: false, due_date: '', stage: 'rehabbing' }));
     await supabase.from('checklist_items').insert(checks);
     setNewAddress(''); setNewPrice(''); setShowAdd(false); fetchAll();
   }
@@ -821,7 +828,8 @@ function App() {
     await supabase.from('properties').update({ status: newStatus, stage_prices: stagePrices }).eq('id', property.id);
     const existing = (checklist[property.id] || []).filter(c => c.stage === newStatus);
     if (!existing.length) {
-      const nc = DC[newStatus].map(l => ({ property_id: property.id, label: l, is_done: false, due_date: '', stage: newStatus }));
+      const activeDefaults = defaultChecklists || DC;
+      const nc = (activeDefaults[newStatus] || DC[newStatus]).map(l => ({ property_id: property.id, label: typeof l === 'string' ? l : l.label, is_done: false, due_date: '', stage: newStatus }));
       await supabase.from('checklist_items').insert(nc);
     }
     fetchAll();
@@ -895,6 +903,23 @@ function App() {
 
   async function updateUserRole(userId, role) {
     await supabase.from('profiles').update({ role }).eq('id', userId); fetchProfiles();
+  }
+
+  async function loadDefaultChecklists() {
+    const { data } = await supabase.from('app_settings').select('*').eq('key', 'default_checklists').single();
+    if (data?.value) {
+      setDefaultChecklists(data.value);
+      setEditingDefaults(JSON.parse(JSON.stringify(data.value)));
+    } else {
+      setDefaultChecklists(DC);
+      setEditingDefaults(JSON.parse(JSON.stringify(DC)));
+    }
+  }
+
+  async function saveDefaultChecklists() {
+    await supabase.from('app_settings').upsert({ key: 'default_checklists', value: editingDefaults }, { onConflict: 'key' });
+    setDefaultChecklists(JSON.parse(JSON.stringify(editingDefaults)));
+    alert('Default checklists saved!');
   }
 
   const selectedProp = selected ? properties.find(p => p.id === selected.id) : null;
@@ -1337,8 +1362,9 @@ function App() {
             <h2 style={{ fontSize: 16, fontWeight: 700 }}>Settings</h2>
             <button onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#aaa' }}>✕</button>
           </div>
-          {/* My Profile */}
-          <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #f0f0f0' }}>
+
+          {/* My Profile - always visible */}
+          <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #f0f0f0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>My profile</div>
               <button onClick={() => setShowEditProfile(true)} style={{ fontSize: 12, color: '#1a2744', background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>✎ Edit</button>
@@ -1363,56 +1389,161 @@ function App() {
               </div>
             </div>
           </div>
-          {/* Users & Permissions */}
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Users & permissions</div>
-            {profiles.map(u => {
-              const isCurrentUser = u.id === currentProfile?.id;
-              const perms = u.permissions || DEFAULT_PERMISSIONS;
-              return (
-                <div key={u.id} style={{ marginBottom: 12, padding: '12px 14px', background: '#fafafa', borderRadius: 10, border: '1px solid #f0f0f0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: u.role !== 'admin' && isAdmin && !isCurrentUser ? 10 : 0 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#1a2744', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, overflow: 'hidden', flexShrink: 0 }}>
-                      {u.avatar_url ? <img src={u.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : u.initials}
+
+          {/* Accordion: Users & Permissions */}
+          <div style={{ marginBottom: 8, border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+            <div onClick={() => setSettingsSection(settingsSection === 'users' ? null : 'users')}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: settingsSection === 'users' ? '#f8f9ff' : 'white' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>Users & Permissions</div>
+                <div style={{ fontSize: 11, color: '#aaa' }}>Manage team members and access levels</div>
+              </div>
+              <span style={{ fontSize: 14, color: '#aaa', transform: settingsSection === 'users' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
+            </div>
+            {settingsSection === 'users' && (
+              <div style={{ padding: '0 14px 14px', borderTop: '1px solid #f0f0f0' }}>
+                <div style={{ height: 12 }} />
+                {profiles.map(u => {
+                  const isCurrentUser = u.id === currentProfile?.id;
+                  const perms = u.permissions || DEFAULT_PERMISSIONS;
+                  return (
+                    <div key={u.id} style={{ marginBottom: 12, padding: '12px 14px', background: '#fafafa', borderRadius: 10, border: '1px solid #f0f0f0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: u.role !== 'admin' && isAdmin && !isCurrentUser ? 10 : 0 }}>
+                        <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#1a2744', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, overflow: 'hidden', flexShrink: 0 }}>
+                          {u.avatar_url ? <img src={u.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : u.initials}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{u.name} {isCurrentUser && <span style={{ fontSize: 10, color: '#aaa' }}>(you)</span>}</div>
+                          <div style={{ fontSize: 11, color: '#aaa' }}>{u.email}</div>
+                        </div>
+                        {isAdmin && !isCurrentUser ? (
+                          <button onClick={() => updateUserRole(u.id, u.role === 'admin' ? 'user' : 'admin')}
+                            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #ddd', background: u.role === 'admin' ? '#fff3e0' : '#e3f2fd', color: u.role === 'admin' ? '#7a3f0a' : '#1a3a5c', cursor: 'pointer', fontWeight: 600 }}>
+                            {u.role === 'admin' ? 'Admin' : 'User'}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: u.role === 'admin' ? '#1a2744' : '#e3f2fd', color: u.role === 'admin' ? 'white' : '#1a3a5c' }}>
+                            {u.role === 'admin' ? 'Admin' : 'User'}
+                          </span>
+                        )}
+                      </div>
+                      {u.role !== 'admin' && isAdmin && !isCurrentUser && (
+                        <div style={{ paddingTop: 8, borderTop: '1px solid #eee' }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 7 }}>Permissions</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
+                            {PERMISSION_DEFS.map(pd => (
+                              <label key={pd.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#444', cursor: 'pointer', padding: '2px 0' }}>
+                                <input type="checkbox" checked={!!perms[pd.key]}
+                                  onChange={e => updateUserPermissions(u.id, { ...perms, [pd.key]: e.target.checked })}
+                                  style={{ accentColor: '#1a2744', cursor: 'pointer' }} />
+                                {pd.label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{u.name} {isCurrentUser && <span style={{ fontSize: 10, color: '#aaa' }}>(you)</span>}</div>
-                      <div style={{ fontSize: 11, color: '#aaa' }}>{u.email}</div>
+                  );
+                })}
+                <div style={{ padding: 10, background: '#f0f7ff', borderRadius: 8, border: '1px solid #d0e8ff' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1a3a5c', marginBottom: 2 }}>Signed in as {currentProfile?.role === 'admin' ? 'Admin' : 'User'}</div>
+                  <div style={{ fontSize: 11, color: '#5a7a9c' }}>Admins have full access. User permissions are individually controlled above.</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Accordion: Pipeline Status Settings */}
+          <div style={{ marginBottom: 8, border: '1px solid #f0f0f0', borderRadius: 10, overflow: 'hidden' }}>
+            <div onClick={() => {
+              if (settingsSection !== 'pipeline') {
+                setSettingsSection('pipeline');
+                if (!editingDefaults) loadDefaultChecklists();
+              } else {
+                setSettingsSection(null);
+              }
+            }}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: settingsSection === 'pipeline' ? '#f8f9ff' : 'white' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>Pipeline Status Settings</div>
+                <div style={{ fontSize: 11, color: '#aaa' }}>Customize default checklist items per stage</div>
+              </div>
+              <span style={{ fontSize: 14, color: '#aaa', transform: settingsSection === 'pipeline' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
+            </div>
+            {settingsSection === 'pipeline' && (
+              <div style={{ padding: '0 14px 14px', borderTop: '1px solid #f0f0f0' }}>
+                <div style={{ height: 12 }} />
+                {!editingDefaults ? (
+                  <div style={{ textAlign: 'center', padding: 20, color: '#aaa' }}>Loading...</div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>
+                      These items are added automatically when a property enters each stage. Changes apply to new properties only.
                     </div>
-                    {isAdmin && !isCurrentUser ? (
-                      <button onClick={() => updateUserRole(u.id, u.role === 'admin' ? 'user' : 'admin')}
-                        style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #ddd', background: u.role === 'admin' ? '#fff3e0' : '#e3f2fd', color: u.role === 'admin' ? '#7a3f0a' : '#1a3a5c', cursor: 'pointer', fontWeight: 600 }}>
-                        {u.role === 'admin' ? 'Admin' : 'User'}
-                      </button>
-                    ) : (
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: u.role === 'admin' ? '#1a2744' : '#e3f2fd', color: u.role === 'admin' ? 'white' : '#1a3a5c' }}>
-                        {u.role === 'admin' ? 'Admin' : 'User'}
-                      </span>
-                    )}
-                  </div>
-                  {u.role !== 'admin' && isAdmin && !isCurrentUser && (
-                    <div style={{ paddingTop: 8, borderTop: '1px solid #eee' }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 7 }}>Permissions</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
-                        {PERMISSION_DEFS.map(pd => (
-                          <label key={pd.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#444', cursor: 'pointer', padding: '2px 0' }}>
-                            <input type="checkbox" checked={!!perms[pd.key]}
-                              onChange={e => updateUserPermissions(u.id, { ...perms, [pd.key]: e.target.checked })}
-                              style={{ accentColor: '#1a2744', cursor: 'pointer' }} />
-                            {pd.label}
-                          </label>
-                        ))}
+                    {/* Stage tabs */}
+                    <div style={{ display: 'flex', gap: 5, marginBottom: 14, flexWrap: 'wrap' }}>
+                      {STATUSES.map(st => (
+                        <button key={st} onClick={() => setDefaultStageOpen(st)}
+                          style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, border: 'none', cursor: 'pointer', fontWeight: 500, background: defaultStageOpen === st ? '#1a2744' : '#f0f0f0', color: defaultStageOpen === st ? 'white' : '#555' }}>
+                          {SLABELS[st]}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Items for selected stage */}
+                    <div style={{ marginBottom: 10 }}>
+                      {(editingDefaults[defaultStageOpen] || []).map((item, idx) => {
+                        const label = typeof item === 'string' ? item : item.label;
+                        return (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#fafafa', borderRadius: 7, marginBottom: 5, border: '1px solid #f0f0f0' }}>
+                            <span style={{ fontSize: 12, color: '#555', flex: 1 }}>{label}</span>
+                            <button onClick={() => {
+                              const newList = [...(editingDefaults[defaultStageOpen] || [])];
+                              if (idx > 0) { [newList[idx-1], newList[idx]] = [newList[idx], newList[idx-1]]; }
+                              setEditingDefaults({ ...editingDefaults, [defaultStageOpen]: newList });
+                            }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 12, padding: '1px 4px' }} title="Move up">↑</button>
+                            <button onClick={() => {
+                              const newList = [...(editingDefaults[defaultStageOpen] || [])];
+                              if (idx < newList.length - 1) { [newList[idx], newList[idx+1]] = [newList[idx+1], newList[idx]]; }
+                              setEditingDefaults({ ...editingDefaults, [defaultStageOpen]: newList });
+                            }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 12, padding: '1px 4px' }} title="Move down">↓</button>
+                            <button onClick={() => {
+                              const newLabel = window.prompt('Edit item:', label);
+                              if (newLabel === null) return;
+                              const newList = [...(editingDefaults[defaultStageOpen] || [])];
+                              newList[idx] = newLabel.trim() || label;
+                              setEditingDefaults({ ...editingDefaults, [defaultStageOpen]: newList });
+                            }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 13, padding: '1px 4px' }} title="Edit">✎</button>
+                            <button onClick={() => {
+                              const newList = (editingDefaults[defaultStageOpen] || []).filter((_, i) => i !== idx);
+                              setEditingDefaults({ ...editingDefaults, [defaultStageOpen]: newList });
+                            }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e57373', fontSize: 16, padding: '1px 4px', lineHeight: 1 }} title="Delete">×</button>
+                          </div>
+                        );
+                      })}
+                      {/* Add new item */}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                        <input id="new-default-item" placeholder="Add new item..." style={{ flex: 1, padding: '6px 9px', borderRadius: 7, border: '1px solid #ddd', fontSize: 12, fontFamily: 'system-ui' }} />
+                        <button onClick={() => {
+                          const input = document.getElementById('new-default-item');
+                          if (!input.value.trim()) return;
+                          const newList = [...(editingDefaults[defaultStageOpen] || []), input.value.trim()];
+                          setEditingDefaults({ ...editingDefaults, [defaultStageOpen]: newList });
+                          input.value = '';
+                        }} style={{ padding: '6px 12px', borderRadius: 7, border: 'none', background: '#1a2744', color: 'white', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Add</button>
                       </div>
                     </div>
-                  )}
-                </div>
-              );
-            })}
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 6 }}>
+                      <button onClick={() => setEditingDefaults(JSON.parse(JSON.stringify(defaultChecklists)))}
+                        style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #ddd', background: 'white', fontSize: 12, cursor: 'pointer' }}>Reset</button>
+                      <button onClick={saveDefaultChecklists}
+                        style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: '#1a2744', color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Save changes</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
-          <div style={{ marginTop: 16, padding: 12, background: '#f0f7ff', borderRadius: 8, border: '1px solid #d0e8ff' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#1a3a5c', marginBottom: 3 }}>Signed in as {currentProfile?.role === 'admin' ? 'Admin' : 'User'}</div>
-            <div style={{ fontSize: 11, color: '#5a7a9c' }}>Admins have full access. User permissions are individually controlled above.</div>
-          </div>
+
         </div></div>
       )}
 
