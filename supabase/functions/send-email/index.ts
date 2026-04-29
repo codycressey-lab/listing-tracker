@@ -21,7 +21,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'Listing Tracker <onboarding@resend.dev>',
+        from: 'Listing Tracker <notifications@backyardhomebuyers.com>',
         to,
         subject,
         html,

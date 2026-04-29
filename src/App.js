@@ -675,7 +675,18 @@ function EditProfileModal({ profile, user, onClose, onSave }) {
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return isMobile;
+}
+
 function App() {
+  const isMobile = useIsMobile();
   const [session, setSession] = useState(null);
   const [currentProfile, setCurrentProfile] = useState(null);
   const [needsProfile, setNeedsProfile] = useState(false);
@@ -697,6 +708,10 @@ function App() {
   const [newNote, setNewNote] = useState('');
   const [stagePriceModal, setStagePriceModal] = useState(null);
   const [hoveredPropId, setHoveredPropId] = useState(null);
+  // Mobile nav state
+  const [mobileScreen, setMobileScreen] = useState('pipeline'); // 'pipeline' | 'property' | 'activity'
+  const [mobileStageFilter, setMobileStageFilter] = useState('rehabbing');
+  const [mobileDetailTab, setMobileDetailTab] = useState('checklist'); // 'checklist' | 'activity' | 'team'
 
   useEffect(() => {
     if (!properties.length) return;
@@ -903,6 +918,325 @@ function App() {
   if (!session) return <AuthScreen onAuth={setSession} />;
   if (needsProfile) return <ProfileSetup user={session.user} onComplete={() => { setNeedsProfile(false); loadProfile(session.user); }} />;
 
+  // ── Mobile layout ──────────────────────────────────────────────────────────
+  if (isMobile) {
+    const mobileProps = mobileStageFilter ? properties.filter(p => p.status === mobileStageFilter) : properties;
+    const allNotes = Object.entries(notes).flatMap(([propId, ns]) => ns.map(n => ({ ...n, propId })));
+    allNotes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    return (
+      <div style={{ fontFamily: 'system-ui, sans-serif', background: '#f0ede8', minHeight: '100vh', display: 'flex', flexDirection: 'column', maxWidth: '100vw', overflow: 'hidden' }}>
+
+        {/* Mobile modals */}
+        {stagePriceModal && (
+          <StagePriceModal
+            toStatus={stagePriceModal.toStatus}
+            onConfirm={(price) => doMoveStatus(stagePriceModal.property, stagePriceModal.direction, price, stagePriceModal.toStatus)}
+            onCancel={() => setStagePriceModal(null)}
+          />
+        )}
+        {showAdd && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}>
+            <div style={{ background: 'white', borderRadius: '16px 16px 0 0', padding: 20, width: '100%', boxSizing: 'border-box' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Add new property</div>
+              <input value={newAddress} onChange={e => setNewAddress(e.target.value)} placeholder="Address" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'system-ui' }} />
+              <input value={newPrice} onChange={e => setNewPrice(e.target.value)} placeholder="Notes (optional)" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 14, fontFamily: 'system-ui' }} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setShowAdd(false)} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid #ddd', background: 'white', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                <button onClick={addProperty} style={{ flex: 2, padding: '10px', borderRadius: 8, border: 'none', background: '#1a2744', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Add Property</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showEdit && editProp && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}>
+            <div style={{ background: 'white', borderRadius: '16px 16px 0 0', padding: 20, width: '100%', boxSizing: 'border-box', maxHeight: '85vh', overflowY: 'auto' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Edit property</div>
+              <input value={editProp.address} onChange={e => setEditProp({ ...editProp, address: e.target.value })} placeholder="Address" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'system-ui' }} />
+              <input value={editProp.price || ''} onChange={e => setEditProp({ ...editProp, price: e.target.value })} placeholder="Notes" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'system-ui' }} />
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Stage prices</div>
+              {[{ st: 'listed', label: 'List Price' }, { st: 'pending', label: 'Contract Price' }, { st: 'sold', label: 'Sold Price' }].map(({ st, label }) => (
+                <div key={st} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: '#555', width: 110 }}>{label}</div>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#555', fontSize: 13 }}>$</span>
+                    <input value={(editProp.stage_prices || {})[st] || ''} onChange={e => setEditProp({ ...editProp, stage_prices: { ...(editProp.stage_prices || {}), [st]: e.target.value.replace(/\D/g, '') } })}
+                      placeholder="0" style={{ width: '100%', padding: '8px 8px 8px 20px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13, boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+              ))}
+              <select value={editProp.status} onChange={e => setEditProp({ ...editProp, status: e.target.value })} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }}>
+                {STATUSES.map(s => <option key={s} value={s}>{SLABELS[s]}</option>)}
+              </select>
+              <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => { setShowEdit(false); setEditProp(null); }} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid #ddd', background: 'white', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                  <button onClick={saveEdit} style={{ flex: 2, padding: '10px', borderRadius: 8, border: 'none', background: '#1a2744', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+                </div>
+                <button onClick={() => { if (window.confirm('Delete this property?')) deleteProperty(editProp.id); }} style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid #ffcdd2', background: 'white', color: '#c62828', fontSize: 13, cursor: 'pointer' }}>Delete property</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showSettings && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}>
+            <div style={{ background: 'white', borderRadius: '16px 16px 0 0', padding: 20, width: '100%', boxSizing: 'border-box', maxHeight: '90vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Settings</div>
+                <button onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#aaa' }}>✕</button>
+              </div>
+              <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>My profile</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#1a2744', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, overflow: 'hidden', flexShrink: 0 }}>
+                    {currentProfile?.avatar_url ? <img src={currentProfile.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : currentProfile?.initials}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{currentProfile?.name}</div>
+                    <div style={{ fontSize: 11, color: '#aaa' }}>{session?.user?.email}</div>
+                  </div>
+                  <button onClick={() => setShowEditProfile(true)} style={{ fontSize: 12, color: '#1a2744', background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Edit</button>
+                </div>
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Users & permissions</div>
+              {profiles.map(u => {
+                const isCurrentUser = u.id === currentProfile?.id;
+                const perms = u.permissions || DEFAULT_PERMISSIONS;
+                return (
+                  <div key={u.id} style={{ marginBottom: 10, padding: '10px 12px', background: '#fafafa', borderRadius: 10, border: '1px solid #f0f0f0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: u.role !== 'admin' && isAdmin && !isCurrentUser ? 8 : 0 }}>
+                      <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#1a2744', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, overflow: 'hidden', flexShrink: 0 }}>
+                        {u.avatar_url ? <img src={u.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : u.initials}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{u.name} {isCurrentUser && <span style={{ fontSize: 10, color: '#aaa' }}>(you)</span>}</div>
+                        <div style={{ fontSize: 10, color: '#aaa' }}>{u.email}</div>
+                      </div>
+                      {isAdmin && !isCurrentUser ? (
+                        <button onClick={() => updateUserRole(u.id, u.role === 'admin' ? 'user' : 'admin')}
+                          style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #ddd', background: u.role === 'admin' ? '#fff3e0' : '#e3f2fd', color: u.role === 'admin' ? '#7a3f0a' : '#1a3a5c', cursor: 'pointer', fontWeight: 600 }}>
+                          {u.role === 'admin' ? 'Admin' : 'User'}
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: u.role === 'admin' ? '#1a2744' : '#e3f2fd', color: u.role === 'admin' ? 'white' : '#1a3a5c' }}>
+                          {u.role === 'admin' ? 'Admin' : 'User'}
+                        </span>
+                      )}
+                    </div>
+                    {u.role !== 'admin' && isAdmin && !isCurrentUser && (
+                      <div style={{ paddingTop: 8, borderTop: '1px solid #eee' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Permissions</div>
+                        {PERMISSION_DEFS.map(pd => (
+                          <label key={pd.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#444', cursor: 'pointer', padding: '4px 0' }}>
+                            <input type="checkbox" checked={!!perms[pd.key]} onChange={e => updateUserPermissions(u.id, { ...perms, [pd.key]: e.target.checked })} style={{ accentColor: '#1a2744' }} />
+                            {pd.label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <button onClick={() => { supabase.auth.signOut(); setShowSettings(false); }} style={{ width: '100%', marginTop: 12, padding: '10px', borderRadius: 8, border: '1px solid #ffcdd2', background: 'white', color: '#c62828', fontSize: 13, cursor: 'pointer' }}>Sign out</button>
+            </div>
+          </div>
+        )}
+        {showEditProfile && currentProfile && (
+          <EditProfileModal profile={currentProfile} user={session.user} onClose={() => setShowEditProfile(false)} onSave={() => { loadProfile(session.user); fetchProfiles(); }} />
+        )}
+
+        {/* Mobile Topbar */}
+        <div style={{ background: '#1a2744', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div>
+            <div style={{ color: 'white', fontSize: 13, fontWeight: 700 }}>Backyard Home Buyers</div>
+            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10 }}>Halstead Home Group</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {overdueCount > 0 && <div style={{ background: '#c62828', color: 'white', fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>⚠ {overdueCount}</div>}
+            <button onClick={() => setShowSettings(true)} style={{ background: 'rgba(255,255,255,0.1)', color: 'white', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 12, cursor: 'pointer' }}>⚙</button>
+            {isAdmin && <button onClick={() => setShowAdd(true)} style={{ background: '#29a8e0', color: 'white', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Add</button>}
+          </div>
+        </div>
+
+        {/* Mobile Content */}
+        <div style={{ flex: 1, overflowY: 'auto', background: '#f0ede8' }}>
+
+          {/* Pipeline Screen */}
+          {mobileScreen === 'pipeline' && (
+            <div>
+              {/* Stage filter tabs */}
+              <div style={{ display: 'flex', gap: 6, padding: '10px 12px', overflowX: 'auto', background: 'white', borderBottom: '1px solid #eee' }}>
+                {STATUSES.map(st => {
+                  const count = properties.filter(p => p.status === st).length;
+                  return (
+                    <button key={st} onClick={() => setMobileStageFilter(st)}
+                      style={{ flexShrink: 0, padding: '5px 12px', borderRadius: 20, fontSize: 11, fontWeight: 500, border: 'none', cursor: 'pointer', background: mobileStageFilter === st ? '#1a2744' : '#f0f0f0', color: mobileStageFilter === st ? 'white' : '#555', whiteSpace: 'nowrap' }}>
+                      {SLABELS[st]} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Property cards */}
+              <div style={{ padding: 10 }}>
+                {loading ? <div style={{ padding: 30, textAlign: 'center', color: '#aaa' }}>Loading...</div> :
+                  mobileProps.length === 0 ? <div style={{ padding: 30, textAlign: 'center', color: '#aaa', fontSize: 13 }}>No properties in this stage</div> :
+                  mobileProps.map(p => {
+                    const pc = pct(p.id, p.status);
+                    const stageChecks = (checklist[p.id] || []).filter(c => c.stage === p.status);
+                    const done = stageChecks.filter(c => c.is_done).length;
+                    const hasOverdue = stageChecks.some(c => isOverdue(c.due_date) && !c.is_done);
+                    const displayPrice = getDisplayPrice(p);
+                    return (
+                      <div key={p.id} onClick={() => { setSelected(p); setMobileScreen('property'); setMobileDetailTab('checklist'); }}
+                        style={{ background: 'white', borderRadius: 12, padding: 14, marginBottom: 8, border: hasOverdue ? '1.5px solid #e57373' : '1px solid #e8e8e8', position: 'relative' }}>
+                        {isAdmin && (
+                          <button onClick={e => { e.stopPropagation(); setEditProp({ ...p, stage_prices: p.stage_prices || {} }); setShowEdit(true); }}
+                            style={{ position: 'absolute', top: 10, right: 10, background: 'none', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', color: '#666', fontSize: 11, padding: '2px 7px' }}>✎</button>
+                        )}
+                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, paddingRight: isAdmin ? 48 : 4 }}>{p.address}</div>
+                        {displayPrice && <div style={{ fontSize: 11, color: '#1a2744', fontWeight: 500, marginBottom: 8 }}>{displayPrice}</div>}
+                        <div style={{ height: 3, background: '#f0f0f0', borderRadius: 2, marginBottom: 5 }}>
+                          <div style={{ height: 3, width: pc + '%', background: '#1a2744', borderRadius: 2 }} />
+                        </div>
+                        <div style={{ fontSize: 11, color: hasOverdue ? '#e57373' : '#aaa' }}>
+                          {hasOverdue ? '⚠ Overdue item' : `${done}/${stageChecks.length} done`}
+                        </div>
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            </div>
+          )}
+
+          {/* Property Detail Screen */}
+          {mobileScreen === 'property' && selectedProp && (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              {/* Back + header */}
+              <div style={{ background: 'white', padding: '10px 14px', borderBottom: '1px solid #eee' }}>
+                <button onClick={() => setMobileScreen('pipeline')} style={{ background: 'none', border: 'none', color: '#1a2744', fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 8, fontWeight: 500 }}>← Back</button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{selectedProp.address}</div>
+                    {getDisplayPrice(selectedProp) && <div style={{ fontSize: 11, color: '#1a2744', fontWeight: 500, marginBottom: 5 }}>{getDisplayPrice(selectedProp)}</div>}
+                    <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: SC[selectedProp.status].bg, color: SC[selectedProp.status].tx, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{SLABELS[selectedProp.status]}</span>
+                  </div>
+                  {isAdmin && <button onClick={() => { setEditProp({ ...selectedProp, stage_prices: selectedProp.stage_prices || {} }); setShowEdit(true); }} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: '#666' }}>✎ Edit</button>}
+                </div>
+                {(can('move_stages') || isAdmin) && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                    {STATUSES.indexOf(selectedProp.status) > 0 && <button onClick={() => initiateMove(selectedProp, -1)} style={{ flex: 1, padding: '8px', borderRadius: 7, border: '1px solid #ddd', background: 'white', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>← Back</button>}
+                    {STATUSES.indexOf(selectedProp.status) < 4 && <button onClick={() => initiateMove(selectedProp, 1)} style={{ flex: 2, padding: '8px', borderRadius: 7, border: 'none', background: '#1a2744', color: 'white', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>Next Stage →</button>}
+                  </div>
+                )}
+              </div>
+              {/* Tabs */}
+              <div style={{ display: 'flex', background: 'white', borderBottom: '1px solid #eee' }}>
+                {['checklist', 'activity', 'team'].map(t => (
+                  <div key={t} onClick={() => setMobileDetailTab(t)}
+                    style={{ flex: 1, padding: '10px 4px', textAlign: 'center', fontSize: 12, fontWeight: 500, cursor: 'pointer', color: mobileDetailTab === t ? '#1a2744' : '#aaa', borderBottom: mobileDetailTab === t ? '2px solid #1a2744' : '2px solid transparent' }}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </div>
+                ))}
+              </div>
+              {/* Checklist tab */}
+              {mobileDetailTab === 'checklist' && (
+                <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>{SLABELS[selectedProp.status]} checklist</div>
+                  {selectedChecks.map(check => (
+                    <ChecklistItem key={check.id} check={check} canEdit={can('edit_checklist') || isAdmin}
+                      onToggle={toggleCheck} onUpdateDate={updateDueDate} onUpdateLabel={updateCheckLabel} onDelete={deleteCheckItem} />
+                  ))}
+                  {(can('edit_checklist') || isAdmin) && (
+                    <AddChecklistItem onAdd={(item) => addCheck(selectedProp.id, selectedProp.status, item)} />
+                  )}
+                </div>
+              )}
+              {/* Activity tab */}
+              {mobileDetailTab === 'activity' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }}>
+                    {!selectedNotes.length && <div style={{ textAlign: 'center', padding: 30, color: '#ccc', fontSize: 13 }}>No activity yet.</div>}
+                    {selectedNotes.map(n => (
+                      <NoteItem key={n.id} n={n} noteReactions={reactions[n.id] || []} profiles={profiles} currentUser={currentProfile}
+                        canEdit={can('edit_own_notes')} canDelete={can('delete_own_notes')}
+                        onToggleReaction={toggleReaction} onEditNote={editNote} onDeleteNote={deleteNote} />
+                    ))}
+                  </div>
+                  {can('add_notes') && (
+                    <div style={{ padding: '8px 12px', borderTop: '1px solid #eee', background: 'white' }}>
+                      <MentionTextarea value={newNote} onChange={e => setNewNote(e.target.value)} profiles={profiles}
+                        placeholder="Add a note... type @ to mention"
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #e0e0e0', fontSize: 13, resize: 'none', height: 52, fontFamily: 'system-ui', outline: 'none', boxSizing: 'border-box' }} />
+                      <button onClick={() => postNote(selectedProp.id)} style={{ marginTop: 6, width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: '#1a2744', color: 'white', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Post</button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Team tab */}
+              {mobileDetailTab === 'team' && (
+                <div style={{ padding: 12 }}>
+                  {profiles.map(u => (
+                    <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'white', borderRadius: 10, marginBottom: 8, border: '1px solid #eee' }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#1a2744', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, overflow: 'hidden', flexShrink: 0 }}>
+                        {u.avatar_url ? <img src={u.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : u.initials}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</div>
+                        <div style={{ fontSize: 11, color: '#aaa' }}>{u.company}</div>
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: u.role === 'admin' ? '#1a2744' : '#e3f2fd', color: u.role === 'admin' ? 'white' : '#1a3a5c' }}>
+                        {u.role === 'admin' ? 'Admin' : 'User'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Global Activity Screen */}
+          {mobileScreen === 'activity' && (
+            <div style={{ padding: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#555', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>All activity</div>
+              {allNotes.length === 0 && <div style={{ textAlign: 'center', padding: 30, color: '#ccc', fontSize: 13 }}>No activity yet.</div>}
+              {allNotes.map(n => {
+                const prop = properties.find(p => p.id === n.property_id);
+                return (
+                  <div key={n.id} style={{ marginBottom: 10 }}>
+                    {prop && <div onClick={() => { setSelected(prop); setMobileScreen('property'); setMobileDetailTab('activity'); }}
+                      style={{ fontSize: 10, color: '#1a2744', fontWeight: 600, marginBottom: 4, cursor: 'pointer' }}>
+                      {prop.address} →
+                    </div>}
+                    <NoteItem n={n} noteReactions={reactions[n.id] || []} profiles={profiles} currentUser={currentProfile}
+                      canEdit={can('edit_own_notes')} canDelete={can('delete_own_notes')}
+                      onToggleReaction={toggleReaction} onEditNote={editNote} onDeleteNote={deleteNote} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Nav */}
+        <div style={{ background: 'white', borderTop: '1px solid #eee', display: 'flex', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          {[
+            { id: 'pipeline', icon: '⊞', label: 'Pipeline' },
+            { id: 'property', icon: '⊟', label: 'Property' },
+            { id: 'activity', icon: '◎', label: 'Activity' },
+          ].map(item => (
+            <button key={item.id} onClick={() => { if (item.id === 'property' && !selectedProp) return; setMobileScreen(item.id); }}
+              style={{ flex: 1, padding: '8px 4px 6px', textAlign: 'center', border: 'none', background: 'none', cursor: item.id === 'property' && !selectedProp ? 'default' : 'pointer', color: mobileScreen === item.id ? '#1a2744' : '#aaa', opacity: item.id === 'property' && !selectedProp ? 0.3 : 1 }}>
+              <div style={{ fontSize: 18, marginBottom: 2 }}>{item.icon}</div>
+              <div style={{ fontSize: 9, fontWeight: 500 }}>{item.label}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Desktop layout ─────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', background: '#f0ede8', minHeight: '100vh' }}>
 
