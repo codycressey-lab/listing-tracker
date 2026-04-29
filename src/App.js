@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import './App.css';
 
@@ -680,7 +680,7 @@ function App() {
       else { setCurrentProfile(null); setNeedsProfile(false); }
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadProfile(user) {
     const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
