@@ -797,6 +797,7 @@ function App() {
   const [newNote, setNewNote] = useState('');
   const [stagePriceModal, setStagePriceModal] = useState(null);
   const [hoveredPropId, setHoveredPropId] = useState(null);
+  const [editingUser, setEditingUser] = useState(null);
   // Mobile nav state
   const [mobileScreen, setMobileScreen] = useState('pipeline');
   const [mobileStageFilter, setMobileStageFilter] = useState('rehabbing');
@@ -992,6 +993,26 @@ function App() {
 
   async function updateUserRole(userId, role) {
     await supabase.from('profiles').update({ role }).eq('id', userId); fetchProfiles();
+  }
+
+  async function deleteUser(userId) {
+    if (!window.confirm('Are you sure you want to delete this user? This cannot be undone.')) return;
+    const { data, error } = await supabase.functions.invoke('manage-user', { body: { action: 'delete', userId } });
+    if (error || data?.error) { alert('Error deleting user: ' + (data?.error || error?.message)); return; }
+    fetchProfiles();
+  }
+
+  async function updateUserProfile(userId, updates) {
+    await supabase.from('profiles').update({
+      name: updates.name,
+      initials: updates.initials,
+      phone: updates.phone,
+      company: updates.company,
+    }).eq('id', userId);
+    if (updates.emailChanged) {
+      await supabase.functions.invoke('manage-user', { body: { action: 'update_email', userId, updates: { email: updates.email } } });
+    }
+    fetchProfiles();
   }
 
   async function loadDefaultChecklists() {
@@ -1505,16 +1526,26 @@ function App() {
                           <div style={{ fontSize: 13, fontWeight: 600 }}>{u.name} {isCurrentUser && <span style={{ fontSize: 10, color: '#aaa' }}>(you)</span>}</div>
                           <div style={{ fontSize: 11, color: '#aaa' }}>{u.email}</div>
                         </div>
-                        {isAdmin && !isCurrentUser ? (
-                          <button onClick={() => updateUserRole(u.id, u.role === 'admin' ? 'user' : 'admin')}
-                            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #ddd', background: u.role === 'admin' ? '#fff3e0' : '#e3f2fd', color: u.role === 'admin' ? '#7a3f0a' : '#1a3a5c', cursor: 'pointer', fontWeight: 600 }}>
-                            {u.role === 'admin' ? 'Admin' : 'User'}
-                          </button>
-                        ) : (
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: u.role === 'admin' ? '#1a2744' : '#e3f2fd', color: u.role === 'admin' ? 'white' : '#1a3a5c' }}>
-                            {u.role === 'admin' ? 'Admin' : 'User'}
-                          </span>
-                        )}
+                        <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                          {isAdmin && !isCurrentUser ? (
+                            <button onClick={() => updateUserRole(u.id, u.role === 'admin' ? 'user' : 'admin')}
+                              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #ddd', background: u.role === 'admin' ? '#fff3e0' : '#e3f2fd', color: u.role === 'admin' ? '#7a3f0a' : '#1a3a5c', cursor: 'pointer', fontWeight: 600 }}>
+                              {u.role === 'admin' ? 'Admin' : 'User'}
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: u.role === 'admin' ? '#1a2744' : '#e3f2fd', color: u.role === 'admin' ? 'white' : '#1a3a5c' }}>
+                              {u.role === 'admin' ? 'Admin' : 'User'}
+                            </span>
+                          )}
+                          {isAdmin && !isCurrentUser && (
+                            <>
+                              <button onClick={() => setEditingUser(u)}
+                                style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #ddd', background: 'white', color: '#555', cursor: 'pointer' }} title="Edit user">✎</button>
+                              <button onClick={() => deleteUser(u.id)}
+                                style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #ffcdd2', background: 'white', color: '#c62828', cursor: 'pointer' }} title="Delete user">🗑</button>
+                            </>
+                          )}
+                        </div>
                       </div>
                       {u.role !== 'admin' && isAdmin && !isCurrentUser && (
                         <div style={{ paddingTop: 8, borderTop: '1px solid #eee' }}>
@@ -1638,6 +1669,23 @@ function App() {
           </div>
 
         </div></div>
+      )}
+
+      {/* Edit User Modal */}
+      {editingUser && (
+        <div style={modalStyle}>
+          <div style={{ background: 'white', borderRadius: 14, padding: 28, width: 400, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Edit user</h2>
+              <button onClick={() => setEditingUser(null)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#aaa' }}>✕</button>
+            </div>
+            <EditUserForm
+              user={editingUser}
+              onSave={async (updates) => { await updateUserProfile(editingUser.id, updates); setEditingUser(null); }}
+              onCancel={() => setEditingUser(null)}
+            />
+          </div>
+        </div>
       )}
 
       {/* Edit Profile Modal */}
@@ -1783,6 +1831,46 @@ function App() {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit User Form ───────────────────────────────────────────────────────────
+
+function EditUserForm({ user, onSave, onCancel }) {
+  const [name, setName] = useState(user.name || '');
+  const [email, setEmail] = useState(user.email || '');
+  const [phone, setPhone] = useState(user.phone || '');
+  const [company, setCompany] = useState(user.company || '');
+  const [saving, setSaving] = useState(false);
+
+  const inp = { width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid #ddd', fontSize: 13, boxSizing: 'border-box', fontFamily: 'system-ui', marginBottom: 8 };
+  const lbl = { fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block' };
+
+  async function save() {
+    if (!name.trim()) return;
+    setSaving(true);
+    const initials = name.trim().split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 3);
+    await onSave({ name: name.trim(), initials, email: email.trim(), phone: phone.trim(), company: company.trim(), emailChanged: email.trim() !== user.email });
+    setSaving(false);
+  }
+
+  return (
+    <div>
+      <label style={lbl}>Full name</label>
+      <input value={name} onChange={e => setName(e.target.value)} style={inp} />
+      <label style={lbl}>Email</label>
+      <input value={email} onChange={e => setEmail(e.target.value)} type="email" style={inp} />
+      <label style={lbl}>Phone (SMS)</label>
+      <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="5095551234" style={inp} />
+      <label style={lbl}>Company</label>
+      <input value={company} onChange={e => setCompany(e.target.value)} style={inp} />
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+        <button onClick={onCancel} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #ddd', background: 'white', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+        <button onClick={save} disabled={saving} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#1a2744', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          {saving ? 'Saving...' : 'Save changes'}
+        </button>
       </div>
     </div>
   );
