@@ -64,6 +64,7 @@ const PRICE_LABELS = {
 const DEFAULT_PERMISSIONS = {
   move_stages: false,
   edit_checklist: false,
+  edit_target_completion: false,
   add_notes: true,
   edit_own_notes: true,
   delete_own_notes: false,
@@ -73,6 +74,7 @@ const DEFAULT_PERMISSIONS = {
 const PERMISSION_DEFS = [
   { key: 'move_stages', label: 'Move properties between stages' },
   { key: 'edit_checklist', label: 'Add / edit / delete checklist items' },
+  { key: 'edit_target_completion', label: 'Edit target completion date' },
   { key: 'add_notes', label: 'Post notes & activity' },
   { key: 'edit_own_notes', label: 'Edit their own notes' },
   { key: 'delete_own_notes', label: 'Delete their own notes' },
@@ -888,7 +890,10 @@ function App() {
 
   async function saveEdit() {
     if (!editProp.address.trim()) return;
-    await supabase.from('properties').update({ address: editProp.address, price: editProp.price, status: editProp.status, stage_prices: editProp.stage_prices || {} }).eq('id', editProp.id);
+    const updates = isAdmin
+      ? { address: editProp.address, price: editProp.price, status: editProp.status, stage_prices: editProp.stage_prices || {}, target_completion_date: editProp.target_completion_date || null }
+      : { target_completion_date: editProp.target_completion_date || null };
+    await supabase.from('properties').update(updates).eq('id', editProp.id);
     setShowEdit(false); setEditProp(null);
     if (selected?.id === editProp.id) setSelected(prev => ({ ...prev, ...editProp }));
     fetchAll();
@@ -1086,29 +1091,45 @@ function App() {
         {showEdit && editProp && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}>
             <div style={{ background: 'white', borderRadius: '16px 16px 0 0', padding: 20, width: '100%', boxSizing: 'border-box', maxHeight: '85vh', overflowY: 'auto' }}>
-              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Edit property</div>
-              <input value={editProp.address} onChange={e => setEditProp({ ...editProp, address: e.target.value })} placeholder="Address" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'system-ui' }} />
-              <input value={editProp.price || ''} onChange={e => setEditProp({ ...editProp, price: e.target.value })} placeholder="Notes" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'system-ui' }} />
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Stage prices</div>
-              {[{ st: 'listed', label: 'List Price' }, { st: 'pending', label: 'Contract Price' }, { st: 'sold', label: 'Sold Price' }].map(({ st, label }) => (
-                <div key={st} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <div style={{ fontSize: 12, color: '#555', width: 110 }}>{label}</div>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#555', fontSize: 13 }}>$</span>
-                    <input value={(editProp.stage_prices || {})[st] || ''} onChange={e => setEditProp({ ...editProp, stage_prices: { ...(editProp.stage_prices || {}), [st]: e.target.value.replace(/\D/g, '') } })}
-                      placeholder="0" style={{ width: '100%', padding: '8px 8px 8px 20px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13, boxSizing: 'border-box' }} />
-                  </div>
-                </div>
-              ))}
-              <select value={editProp.status} onChange={e => setEditProp({ ...editProp, status: e.target.value })} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }}>
-                {STATUSES.map(s => <option key={s} value={s}>{SLABELS[s]}</option>)}
-              </select>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>{isAdmin ? 'Edit property' : 'Edit target completion'}</div>
+              {isAdmin ? (
+                <>
+                  <input value={editProp.address} onChange={e => setEditProp({ ...editProp, address: e.target.value })} placeholder="Address" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'system-ui' }} />
+                  <input value={editProp.price || ''} onChange={e => setEditProp({ ...editProp, price: e.target.value })} placeholder="Notes" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, boxSizing: 'border-box', marginBottom: 10, fontFamily: 'system-ui' }} />
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Stage prices</div>
+                  {[{ st: 'listed', label: 'List Price' }, { st: 'pending', label: 'Contract Price' }, { st: 'sold', label: 'Sold Price' }].map(({ st, label }) => (
+                    <div key={st} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, color: '#555', width: 110 }}>{label}</div>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#555', fontSize: 13 }}>$</span>
+                        <input value={(editProp.stage_prices || {})[st] || ''} onChange={e => setEditProp({ ...editProp, stage_prices: { ...(editProp.stage_prices || {}), [st]: e.target.value.replace(/\D/g, '') } })}
+                          placeholder="0" style={{ width: '100%', padding: '8px 8px 8px 20px', borderRadius: 6, border: '1px solid #ddd', fontSize: 13, boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 12, color: '#555', marginBottom: 6 }}>Target completion date</div>
+                  <input type="date" value={editProp.target_completion_date || ''} onChange={e => setEditProp({ ...editProp, target_completion_date: e.target.value })}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, marginBottom: 14, boxSizing: 'border-box', fontFamily: 'system-ui' }} />
+                  <select value={editProp.status} onChange={e => setEditProp({ ...editProp, status: e.target.value })} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }}>
+                    {STATUSES.map(s => <option key={s} value={s}>{SLABELS[s]}</option>)}
+                  </select>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13, color: '#1a2744', fontWeight: 600, marginBottom: 14 }}>{editProp.address}</div>
+                  <div style={{ fontSize: 12, color: '#555', marginBottom: 6 }}>Target completion date</div>
+                  <input type="date" value={editProp.target_completion_date || ''} onChange={e => setEditProp({ ...editProp, target_completion_date: e.target.value })}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, marginBottom: 14, boxSizing: 'border-box', fontFamily: 'system-ui' }} />
+                </>
+              )}
               <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => { setShowEdit(false); setEditProp(null); }} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid #ddd', background: 'white', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
                   <button onClick={saveEdit} style={{ flex: 2, padding: '10px', borderRadius: 8, border: 'none', background: '#1a2744', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Save</button>
                 </div>
-                <button onClick={() => { if (window.confirm('Delete this property?')) deleteProperty(editProp.id); }} style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid #ffcdd2', background: 'white', color: '#c62828', fontSize: 13, cursor: 'pointer' }}>Delete property</button>
+                {isAdmin && (
+                  <button onClick={() => { if (window.confirm('Delete this property?')) deleteProperty(editProp.id); }} style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid #ffcdd2', background: 'white', color: '#c62828', fontSize: 13, cursor: 'pointer' }}>Delete property</button>
+                )}
               </div>
             </div>
           </div>
@@ -1222,22 +1243,24 @@ function App() {
                     const hasOverdue = stageChecks.some(c => isOverdue(c.due_date) && !c.is_done);
                     const displayPrice = getDisplayPrice(p);
                     const targetListPrice = p.status === 'rehabbing' ? formatPrice((p.stage_prices || {}).listed) : '';
+                    const fallbackCompletion = ((checklist[p.id] || []).find(c => c.label === 'Target completion date') || {}).due_date;
                     const targetCompletion = p.status === 'rehabbing'
-                      ? formatDate(((checklist[p.id] || []).find(c => c.label === 'Target completion date') || {}).due_date)
+                      ? formatDate(p.target_completion_date || fallbackCompletion)
                       : '';
+                    const canEditTile = isAdmin || can('edit_target_completion');
                     return (
                       <div key={p.id} onClick={() => { setSelected(p); setMobileScreen('property'); setMobileDetailTab('checklist'); }}
                         style={{ background: 'white', borderRadius: 12, padding: 18, marginBottom: 10, border: hasOverdue ? '1.5px solid #e57373' : '1px solid #e8e8e8', position: 'relative' }}>
-                        {isAdmin && (
+                        {canEditTile && (
                           <button onClick={e => { e.stopPropagation(); setEditProp({ ...p, stage_prices: p.stage_prices || {} }); setShowEdit(true); }}
                             style={{ position: 'absolute', top: 12, right: 12, background: 'none', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', color: '#666', fontSize: 12, padding: '3px 8px' }}>✎</button>
                         )}
-                        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 3, paddingRight: isAdmin ? 52 : 4 }}>{p.address}</div>
+                        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 3, paddingRight: canEditTile ? 52 : 4 }}>{p.address}</div>
                         {displayPrice && <div style={{ fontSize: 13, color: '#1a2744', fontWeight: 500, marginBottom: 8 }}>{displayPrice}</div>}
-                        {(targetListPrice || targetCompletion) && (
+                        {p.status === 'rehabbing' && (
                           <div style={{ fontSize: 12, color: '#555', marginBottom: 8, lineHeight: 1.5 }}>
                             {targetListPrice && <div><span style={{ color: '#888' }}>Target list price:</span> <span style={{ color: '#1a2744', fontWeight: 500 }}>{targetListPrice}</span></div>}
-                            {targetCompletion && <div><span style={{ color: '#888' }}>Target completion:</span> <span style={{ color: '#1a2744', fontWeight: 500 }}>{targetCompletion}</span></div>}
+                            <div><span style={{ color: '#888' }}>Target completion:</span> <span style={{ color: targetCompletion ? '#1a2744' : '#bbb', fontWeight: 500 }}>{targetCompletion || '—'}</span></div>
                           </div>
                         )}
                         <div style={{ height: 4, background: '#f0f0f0', borderRadius: 2, marginBottom: 6 }}>
@@ -1266,7 +1289,7 @@ function App() {
                     {getDisplayPrice(selectedProp) && <div style={{ fontSize: 11, color: '#1a2744', fontWeight: 500, marginBottom: 5 }}>{getDisplayPrice(selectedProp)}</div>}
                     <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: SC[selectedProp.status].bg, color: SC[selectedProp.status].tx, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{SLABELS[selectedProp.status]}</span>
                   </div>
-                  {isAdmin && <button onClick={() => { setEditProp({ ...selectedProp, stage_prices: selectedProp.stage_prices || {} }); setShowEdit(true); }} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: '#666' }}>✎ Edit</button>}
+                  {(isAdmin || can('edit_target_completion')) && <button onClick={() => { setEditProp({ ...selectedProp, stage_prices: selectedProp.stage_prices || {} }); setShowEdit(true); }} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: '#666' }}>✎ Edit</button>}
                 </div>
                 {(can('move_stages') || isAdmin) && (
                   <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
@@ -1437,36 +1460,50 @@ function App() {
       {showEdit && editProp && (
         <div style={modalStyle}><div style={cardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700 }}>Edit property</h2>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#fff3e0', color: '#7a3f0a' }}>ADMIN ONLY</span>
+            <h2 style={{ fontSize: 16, fontWeight: 700 }}>{isAdmin ? 'Edit property' : 'Edit target completion'}</h2>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isAdmin ? '#fff3e0' : '#e3f2fd', color: isAdmin ? '#7a3f0a' : '#1a3a5c' }}>{isAdmin ? 'ADMIN ONLY' : 'TARGET DATE'}</span>
           </div>
-          <label style={labelStyle}>Address</label>
-          <input value={editProp.address} onChange={e => setEditProp({ ...editProp, address: e.target.value })} style={inputStyle} />
-          <label style={labelStyle}>Notes</label>
-          <input value={editProp.price || ''} onChange={e => setEditProp({ ...editProp, price: e.target.value })} placeholder="e.g. Rehab budget $45k" style={inputStyle} />
-          {/* Stage prices */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Stage prices</div>
-            {[{ st: 'listed', label: 'List Price' }, { st: 'pending', label: 'Contract Price' }, { st: 'sold', label: 'Sold Price' }].map(({ st, label }) => {
-              const stagePrices = editProp.stage_prices || {};
-              return (
-                <div key={st} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <div style={{ fontSize: 12, color: '#555', width: 120 }}>{label}</div>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#555', fontSize: 13 }}>$</span>
-                    <input value={stagePrices[st] || ''} onChange={e => setEditProp({ ...editProp, stage_prices: { ...(editProp.stage_prices || {}), [st]: e.target.value.replace(/\D/g, '') } })}
-                      placeholder="0" style={{ width: '100%', padding: '6px 8px 6px 20px', borderRadius: 6, border: '1px solid #ddd', fontSize: 12, boxSizing: 'border-box' }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <label style={labelStyle}>Status</label>
-          <select value={editProp.status} onChange={e => setEditProp({ ...editProp, status: e.target.value })} style={{ ...inputStyle, marginBottom: 16 }}>
-            {STATUSES.map(s => <option key={s} value={s}>{SLABELS[s]}</option>)}
-          </select>
+          {isAdmin ? (
+            <>
+              <label style={labelStyle}>Address</label>
+              <input value={editProp.address} onChange={e => setEditProp({ ...editProp, address: e.target.value })} style={inputStyle} />
+              <label style={labelStyle}>Notes</label>
+              <input value={editProp.price || ''} onChange={e => setEditProp({ ...editProp, price: e.target.value })} placeholder="e.g. Rehab budget $45k" style={inputStyle} />
+              {/* Stage prices */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Stage prices</div>
+                {[{ st: 'listed', label: 'List Price' }, { st: 'pending', label: 'Contract Price' }, { st: 'sold', label: 'Sold Price' }].map(({ st, label }) => {
+                  const stagePrices = editProp.stage_prices || {};
+                  return (
+                    <div key={st} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, color: '#555', width: 120 }}>{label}</div>
+                      <div style={{ position: 'relative', flex: 1 }}>
+                        <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#555', fontSize: 13 }}>$</span>
+                        <input value={stagePrices[st] || ''} onChange={e => setEditProp({ ...editProp, stage_prices: { ...(editProp.stage_prices || {}), [st]: e.target.value.replace(/\D/g, '') } })}
+                          placeholder="0" style={{ width: '100%', padding: '6px 8px 6px 20px', borderRadius: 6, border: '1px solid #ddd', fontSize: 12, boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <label style={labelStyle}>Target completion date</label>
+              <input type="date" value={editProp.target_completion_date || ''} onChange={e => setEditProp({ ...editProp, target_completion_date: e.target.value })} style={{ ...inputStyle, marginBottom: 14 }} />
+              <label style={labelStyle}>Status</label>
+              <select value={editProp.status} onChange={e => setEditProp({ ...editProp, status: e.target.value })} style={{ ...inputStyle, marginBottom: 16 }}>
+                {STATUSES.map(s => <option key={s} value={s}>{SLABELS[s]}</option>)}
+              </select>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, color: '#1a2744', fontWeight: 600, marginBottom: 16 }}>{editProp.address}</div>
+              <label style={labelStyle}>Target completion date</label>
+              <input type="date" value={editProp.target_completion_date || ''} onChange={e => setEditProp({ ...editProp, target_completion_date: e.target.value })} style={{ ...inputStyle, marginBottom: 16 }} />
+            </>
+          )}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginTop: 6 }}>
-            <button onClick={() => { if (window.confirm('Delete this property?')) deleteProperty(editProp.id); }} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #ffcdd2', background: 'white', color: '#c62828', cursor: 'pointer', fontSize: 12 }}>Delete property</button>
+            {isAdmin ? (
+              <button onClick={() => { if (window.confirm('Delete this property?')) deleteProperty(editProp.id); }} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #ffcdd2', background: 'white', color: '#c62828', cursor: 'pointer', fontSize: 12 }}>Delete property</button>
+            ) : <span />}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => { setShowEdit(false); setEditProp(null); }} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #ddd', background: 'white', cursor: 'pointer', fontSize: 12 }}>Cancel</button>
               <button onClick={saveEdit} style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: '#1a2744', color: 'white', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Save changes</button>
@@ -1725,26 +1762,28 @@ function App() {
                   const displayPrice = getDisplayPrice(p);
                   const isHovered = hoveredPropId === p.id;
                   const targetListPrice = p.status === 'rehabbing' ? formatPrice((p.stage_prices || {}).listed) : '';
+                  const fallbackCompletion = ((checklist[p.id] || []).find(c => c.label === 'Target completion date') || {}).due_date;
                   const targetCompletion = p.status === 'rehabbing'
-                    ? formatDate(((checklist[p.id] || []).find(c => c.label === 'Target completion date') || {}).due_date)
+                    ? formatDate(p.target_completion_date || fallbackCompletion)
                     : '';
+                  const canEditTile = isAdmin || can('edit_target_completion');
                   return (
                     <div key={p.id}
                       onMouseEnter={() => setHoveredPropId(p.id)}
                       onMouseLeave={() => setHoveredPropId(null)}
                       style={{ background: 'white', border: selected?.id === p.id ? '2px solid #1a2744' : hasOverdue ? '1.5px solid #e57373' : '1.5px solid #ebebeb', borderRadius: 10, padding: 16, cursor: 'pointer', marginBottom: 9, position: 'relative' }}>
                       {hasOverdue && <div style={{ position: 'absolute', top: 10, left: 10, width: 8, height: 8, borderRadius: '50%', background: '#e57373' }} />}
-                      {isAdmin && isHovered && (
+                      {canEditTile && isHovered && (
                         <button onClick={e => { e.stopPropagation(); setEditProp({ ...p, stage_prices: p.stage_prices || {} }); setShowEdit(true); }}
                           style={{ position: 'absolute', top: 9, right: 9, background: 'white', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', color: '#555', fontSize: 12, padding: '3px 8px', zIndex: 2, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>✎ Edit</button>
                       )}
                       <div onClick={() => { setSelected(p); setTab(0); }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 3, paddingRight: isAdmin ? 58 : 4, paddingLeft: hasOverdue ? 14 : 0 }}>{p.address}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 3, paddingRight: canEditTile ? 58 : 4, paddingLeft: hasOverdue ? 14 : 0 }}>{p.address}</div>
                         {displayPrice && <div style={{ fontSize: 12, color: '#1a2744', fontWeight: 500, marginBottom: 6 }}>{displayPrice}</div>}
-                        {(targetListPrice || targetCompletion) && (
+                        {p.status === 'rehabbing' && (
                           <div style={{ fontSize: 11, color: '#555', marginBottom: 8, lineHeight: 1.45 }}>
                             {targetListPrice && <div><span style={{ color: '#888' }}>Target list price:</span> <span style={{ color: '#1a2744', fontWeight: 500 }}>{targetListPrice}</span></div>}
-                            {targetCompletion && <div><span style={{ color: '#888' }}>Target completion:</span> <span style={{ color: '#1a2744', fontWeight: 500 }}>{targetCompletion}</span></div>}
+                            <div><span style={{ color: '#888' }}>Target completion:</span> <span style={{ color: targetCompletion ? '#1a2744' : '#bbb', fontWeight: 500 }}>{targetCompletion || '—'}</span></div>
                           </div>
                         )}
                         <div style={{ height: 4, background: '#f0f0f0', borderRadius: 2, marginBottom: 7 }}>
@@ -1800,7 +1839,7 @@ function App() {
                   <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: SC[selectedProp.status].bg, color: SC[selectedProp.status].tx, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{SLABELS[selectedProp.status]}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  {isAdmin && <button onClick={() => { setEditProp({ ...selectedProp, stage_prices: selectedProp.stage_prices || {} }); setShowEdit(true); }} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 12, color: '#666' }}>✎ Edit</button>}
+                  {(isAdmin || can('edit_target_completion')) && <button onClick={() => { setEditProp({ ...selectedProp, stage_prices: selectedProp.stage_prices || {} }); setShowEdit(true); }} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 12, color: '#666' }}>✎ Edit</button>}
                   <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#aaa' }}>✕</button>
                 </div>
               </div>
