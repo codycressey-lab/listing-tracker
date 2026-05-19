@@ -1221,19 +1221,29 @@ function App() {
                     const done = stageChecks.filter(c => c.is_done).length;
                     const hasOverdue = stageChecks.some(c => isOverdue(c.due_date) && !c.is_done);
                     const displayPrice = getDisplayPrice(p);
+                    const targetListPrice = p.status === 'rehabbing' ? formatPrice((p.stage_prices || {}).listed) : '';
+                    const targetCompletion = p.status === 'rehabbing'
+                      ? formatDate(((checklist[p.id] || []).find(c => c.label === 'Target completion date') || {}).due_date)
+                      : '';
                     return (
                       <div key={p.id} onClick={() => { setSelected(p); setMobileScreen('property'); setMobileDetailTab('checklist'); }}
-                        style={{ background: 'white', borderRadius: 12, padding: 14, marginBottom: 8, border: hasOverdue ? '1.5px solid #e57373' : '1px solid #e8e8e8', position: 'relative' }}>
+                        style={{ background: 'white', borderRadius: 12, padding: 18, marginBottom: 10, border: hasOverdue ? '1.5px solid #e57373' : '1px solid #e8e8e8', position: 'relative' }}>
                         {isAdmin && (
                           <button onClick={e => { e.stopPropagation(); setEditProp({ ...p, stage_prices: p.stage_prices || {} }); setShowEdit(true); }}
-                            style={{ position: 'absolute', top: 10, right: 10, background: 'none', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', color: '#666', fontSize: 11, padding: '2px 7px' }}>✎</button>
+                            style={{ position: 'absolute', top: 12, right: 12, background: 'none', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', color: '#666', fontSize: 12, padding: '3px 8px' }}>✎</button>
                         )}
-                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, paddingRight: isAdmin ? 48 : 4 }}>{p.address}</div>
-                        {displayPrice && <div style={{ fontSize: 11, color: '#1a2744', fontWeight: 500, marginBottom: 8 }}>{displayPrice}</div>}
-                        <div style={{ height: 3, background: '#f0f0f0', borderRadius: 2, marginBottom: 5 }}>
-                          <div style={{ height: 3, width: pc + '%', background: '#1a2744', borderRadius: 2 }} />
+                        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 3, paddingRight: isAdmin ? 52 : 4 }}>{p.address}</div>
+                        {displayPrice && <div style={{ fontSize: 13, color: '#1a2744', fontWeight: 500, marginBottom: 8 }}>{displayPrice}</div>}
+                        {(targetListPrice || targetCompletion) && (
+                          <div style={{ fontSize: 12, color: '#555', marginBottom: 8, lineHeight: 1.5 }}>
+                            {targetListPrice && <div><span style={{ color: '#888' }}>Target list price:</span> <span style={{ color: '#1a2744', fontWeight: 500 }}>{targetListPrice}</span></div>}
+                            {targetCompletion && <div><span style={{ color: '#888' }}>Target completion:</span> <span style={{ color: '#1a2744', fontWeight: 500 }}>{targetCompletion}</span></div>}
+                          </div>
+                        )}
+                        <div style={{ height: 4, background: '#f0f0f0', borderRadius: 2, marginBottom: 6 }}>
+                          <div style={{ height: 4, width: pc + '%', background: '#1a2744', borderRadius: 2 }} />
                         </div>
-                        <div style={{ fontSize: 11, color: hasOverdue ? '#e57373' : '#aaa' }}>
+                        <div style={{ fontSize: 12, color: hasOverdue ? '#e57373' : '#aaa' }}>
                           {hasOverdue ? '⚠ Overdue item' : `${done}/${stageChecks.length} done`}
                         </div>
                       </div>
@@ -1702,7 +1712,7 @@ function App() {
             const cols = properties.filter(p => p.status === st);
             const s = SC[st];
             return (
-              <div key={st} style={{ flex: '0 0 190px' }}>
+              <div key={st} style={{ flex: '0 0 230px' }}>
                 <div style={{ background: s.bg, borderRadius: 8, padding: '7px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: s.tx }}>{SLABELS[st]}</span>
                   <span style={{ fontSize: 10, fontWeight: 700, color: s.tx, width: 18, height: 18, borderRadius: '50%', background: 'rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{cols.length}</span>
@@ -1714,23 +1724,33 @@ function App() {
                   const hasOverdue = stageChecks.some(c => isOverdue(c.due_date) && !c.is_done);
                   const displayPrice = getDisplayPrice(p);
                   const isHovered = hoveredPropId === p.id;
+                  const targetListPrice = p.status === 'rehabbing' ? formatPrice((p.stage_prices || {}).listed) : '';
+                  const targetCompletion = p.status === 'rehabbing'
+                    ? formatDate(((checklist[p.id] || []).find(c => c.label === 'Target completion date') || {}).due_date)
+                    : '';
                   return (
                     <div key={p.id}
                       onMouseEnter={() => setHoveredPropId(p.id)}
                       onMouseLeave={() => setHoveredPropId(null)}
-                      style={{ background: 'white', border: selected?.id === p.id ? '2px solid #1a2744' : hasOverdue ? '1.5px solid #e57373' : '1.5px solid #ebebeb', borderRadius: 10, padding: 12, cursor: 'pointer', marginBottom: 7, position: 'relative' }}>
-                      {hasOverdue && <div style={{ position: 'absolute', top: 8, left: 8, width: 7, height: 7, borderRadius: '50%', background: '#e57373' }} />}
+                      style={{ background: 'white', border: selected?.id === p.id ? '2px solid #1a2744' : hasOverdue ? '1.5px solid #e57373' : '1.5px solid #ebebeb', borderRadius: 10, padding: 16, cursor: 'pointer', marginBottom: 9, position: 'relative' }}>
+                      {hasOverdue && <div style={{ position: 'absolute', top: 10, left: 10, width: 8, height: 8, borderRadius: '50%', background: '#e57373' }} />}
                       {isAdmin && isHovered && (
                         <button onClick={e => { e.stopPropagation(); setEditProp({ ...p, stage_prices: p.stage_prices || {} }); setShowEdit(true); }}
-                          style={{ position: 'absolute', top: 7, right: 7, background: 'white', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', color: '#555', fontSize: 11, padding: '2px 7px', zIndex: 2, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>✎ Edit</button>
+                          style={{ position: 'absolute', top: 9, right: 9, background: 'white', border: '1px solid #ddd', borderRadius: 5, cursor: 'pointer', color: '#555', fontSize: 12, padding: '3px 8px', zIndex: 2, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>✎ Edit</button>
                       )}
                       <div onClick={() => { setSelected(p); setTab(0); }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2, paddingRight: isAdmin ? 52 : 4, paddingLeft: hasOverdue ? 12 : 0 }}>{p.address}</div>
-                        {displayPrice && <div style={{ fontSize: 10, color: '#1a2744', fontWeight: 500, marginBottom: 7 }}>{displayPrice}</div>}
-                        <div style={{ height: 3, background: '#f0f0f0', borderRadius: 2, marginBottom: 6 }}>
-                          <div style={{ height: 3, width: pc + '%', background: '#1a2744', borderRadius: 2 }} />
+                        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 3, paddingRight: isAdmin ? 58 : 4, paddingLeft: hasOverdue ? 14 : 0 }}>{p.address}</div>
+                        {displayPrice && <div style={{ fontSize: 12, color: '#1a2744', fontWeight: 500, marginBottom: 6 }}>{displayPrice}</div>}
+                        {(targetListPrice || targetCompletion) && (
+                          <div style={{ fontSize: 11, color: '#555', marginBottom: 8, lineHeight: 1.45 }}>
+                            {targetListPrice && <div><span style={{ color: '#888' }}>Target list price:</span> <span style={{ color: '#1a2744', fontWeight: 500 }}>{targetListPrice}</span></div>}
+                            {targetCompletion && <div><span style={{ color: '#888' }}>Target completion:</span> <span style={{ color: '#1a2744', fontWeight: 500 }}>{targetCompletion}</span></div>}
+                          </div>
+                        )}
+                        <div style={{ height: 4, background: '#f0f0f0', borderRadius: 2, marginBottom: 7 }}>
+                          <div style={{ height: 4, width: pc + '%', background: '#1a2744', borderRadius: 2 }} />
                         </div>
-                        <div style={{ fontSize: 10, color: hasOverdue ? '#e57373' : '#aaa' }}>
+                        <div style={{ fontSize: 11, color: hasOverdue ? '#e57373' : '#aaa' }}>
                           {hasOverdue ? '⚠ Overdue item' : `${done}/${stageChecks.length} done`}
                         </div>
                       </div>
